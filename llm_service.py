@@ -1,71 +1,88 @@
 """
 llm_service.py
 ---------------
-The LangChain layer. Two real LLM-powered pipelines live here:
+LangChain layer for the Classroom Environment Advisor.
+
+Two LLM-powered pipelines:
 
 1. extract_conditions_from_text()
-       Natural language  ->  ChatPromptTemplate  ->  LLM  ->
-       structured JSON  ->  Pydantic validation  ->  ClassroomConditions
+   Natural language -> ChatPromptTemplate -> LLM
+   -> JSON -> validation -> ClassroomConditions
 
 2. generate_explanation()
-       Fuzzy engine result (score, category, fired rules)  ->
-       ChatPromptTemplate  ->  LLM  ->  plain-English explanation
+   Fuzzy result -> ChatPromptTemplate -> LLM
+   -> plain-English explanation
 
-Neither function ever lets the LLM invent the final quality score — that
-number always comes from fuzzy_engine.py. The LLM only (a) turns language
-into numbers, and (b) turns numbers back into language.
-
-The LLM provider is OpenAI-compatible and configured entirely through
-environment variables (see .env.example), so the same code works with
-OpenAI itself or with any OpenAI-compatible endpoint (Groq, OpenRouter,
-Together AI, etc.) by changing LLM_BASE_URL.
+Important:
+- The LLM NEVER calculates the final classroom score.
+- The final score always comes from fuzzy_engine.py.
+- The LLM only extracts readings and explains the fuzzy result.
+- API credentials are never printed or exposed in logs.
 """
 
 import json
+import logging
 import os
 import re
 from typing import List
 
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.exceptions import OutputParserException
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 
 from models import ClassroomConditions, ExplanationResult
 from prompts import EXTRACTION_PROMPT, EXPLANATION_PROMPT
 
 
+logger = logging.getLogger(__name__)
+
+
 class LLMConfigError(Exception):
-    """Raised when the LLM cannot be configured (e.g. missing API key)."""
+    """Raised when the LLM cannot be configured."""
 
 
 class LLMExtractionError(Exception):
-    """Raised when the LLM response cannot be parsed into valid conditions."""
+    """Raised when the LLM response cannot be parsed or validated."""
 
 
 def _get_api_key() -> str:
-    """Read the API key from env / Streamlit secrets. Streamlit secrets are
-    injected into os.environ by app.py at startup (see app.py), so this
-    function only needs to look at the environment."""
+    """
+    Read the API key from environment variables.
+
+    Streamlit secrets are loaded into os.environ by app.py/utils.py.
+    """
     key = os.environ.get("LLM_API_KEY", "").strip()
+
     if not key:
         raise LLMConfigError(
-            "No LLM_API_KEY found. Set it in your .env file (local) or in "
-            "Streamlit secrets (cloud) — see .env.example."
+            "No LLM_API_KEY found. Set it in your .env file locally "
+            "or in Streamlit Secrets on Streamlit Cloud."
         )
+
     return key
 
 
 def get_llm(temperature: float = 0.1) -> ChatOpenAI:
-    """Build a configured ChatOpenAI client.
-
-    LLM_MODEL and LLM_BASE_URL are optional; sensible defaults are used so
-    the app works out of the box with a plain OpenAI key, while still
-    allowing students on a free-tier OpenAI-compatible provider (e.g. Groq)
-    to just change two env vars.
     """
+    Build the configured OpenAI-compatible ChatOpenAI client.
+
+    Supported configuration:
+        LLM_API_KEY
+        LLM_MODEL
+        LLM_BASE_URL
+    """
+
     api_key = _get_api_key()
-    model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-    base_url = os.environ.get("LLM_BASE_URL") or None
+
+    model = os.environ.get(
+        "LLM_MODEL",
+        "gpt-4o-mini",
+    ).strip()
+
+    base_url = os.environ.get(
+        "LLM_BASE_URL",
+        "",
+    ).strip() or None
 
     return ChatOpenAI(
         model=model,
@@ -73,57 +90,177 @@ def get_llm(temperature: float = 0.1) -> ChatOpenAI:
         base_url=base_url,
         temperature=temperature,
         timeout=30,
+        max_retries=1,
     )
 
 
 def _strip_code_fences(text: str) -> str:
-    """LLMs sometimes wrap JSON in ```json ... ``` even when told not to.
-    Strip that defensively before parsing."""
+    """
+    Remove accidental Markdown code fences around JSON.
+
+    Example:
+        ```json
+        {"temperature": 24}
+        ```
+
+    becomes:
+        {"temperature": 24}
+    """
+
+    if not text:
+        return ""
+
     text = text.strip()
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+
+    match = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```",
+        text,
+        re.DOTALL,
+    )
+
     if match:
-        return match.group(1)
+        return match.group(1).strip()
+
     return text
 
 
-def extract_conditions_from_text(description: str) -> ClassroomConditions:
-    """LangChain pipeline #1: Natural language -> structured numeric conditions.
-
-    Pipeline: ChatPromptTemplate -> ChatOpenAI -> JsonOutputParser -> Pydantic validation.
+def extract_conditions_from_text(
+    description: str,
+) -> ClassroomConditions:
     """
+    LangChain pipeline #1:
+
+    Natural language
+        -> ChatPromptTemplate
+        -> ChatOpenAI
+        -> JSON parser
+        -> Pydantic validation
+        -> ClassroomConditions
+    """
+
     if not description or not description.strip():
-        raise LLMExtractionError("Please describe the classroom before analyzing.")
-
-    llm = get_llm(temperature=0.1)
-    parser = JsonOutputParser()
-    chain = EXTRACTION_PROMPT | llm | parser
+        raise LLMExtractionError(
+            "Please describe the classroom before analyzing."
+        )
 
     try:
-        raw = chain.invoke({"description": description})
-    except OutputParserException:
-        # Fallback: ask the raw chain (no parser) and parse manually,
-        # stripping any accidental markdown fences.
+        llm = get_llm(temperature=0.1)
+
+        parser = JsonOutputParser()
+
+        chain = EXTRACTION_PROMPT | llm | parser
+
         try:
-            raw_chain = EXTRACTION_PROMPT | llm
-            raw_message = raw_chain.invoke({"description": description})
-            cleaned = _strip_code_fences(raw_message.content)
-            raw = json.loads(cleaned)
-    except Exception as exc:  # noqa: BLE001
+            raw = chain.invoke(
+                {
+                    "description": description.strip(),
+                }
+            )
+
+        except OutputParserException as exc:
+            """
+            Sometimes the LLM returns valid JSON wrapped in Markdown.
+
+            Retry once without the JSON parser and clean the response
+            manually.
+            """
+
+            logger.warning(
+                "LLM returned output that could not be parsed directly. "
+                "Attempting manual JSON recovery."
+            )
+
+            try:
+                raw_chain = EXTRACTION_PROMPT | llm
+
+                raw_message = raw_chain.invoke(
+                    {
+                        "description": description.strip(),
+                    }
+                )
+
+                cleaned = _strip_code_fences(
+                    raw_message.content
+                )
+
+                raw = json.loads(cleaned)
+
+            except Exception as recovery_exc:
+                logger.exception(
+                    "Manual JSON recovery failed: %s",
+                    recovery_exc,
+                )
+
+                raise LLMExtractionError(
+                    "The AI response could not be converted into valid "
+                    "classroom data."
+                ) from recovery_exc
+
+        except Exception as exc:
+            logger.exception(
+                "LLM extraction request failed: %s",
+                exc,
+            )
+
             raise LLMExtractionError(
-                f"The AI response could not be parsed as valid JSON: {exc}"
+                f"LLM request failed: {exc}"
             ) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise LLMExtractionError(f"LLM request failed: {exc}") from exc
 
-    required_keys = {"temperature", "humidity", "co2", "noise", "light", "occupancy"}
-    missing = required_keys - set(raw.keys())
-    if missing:
-        raise LLMExtractionError(f"AI response is missing fields: {', '.join(sorted(missing))}")
+        if not isinstance(raw, dict):
+            raise LLMExtractionError(
+                "The AI returned an unexpected response format."
+            )
 
-    try:
-        return ClassroomConditions(**{k: raw[k] for k in required_keys})
-    except Exception as exc:  # noqa: BLE001
-        raise LLMExtractionError(f"Extracted values failed validation: {exc}") from exc
+        required_keys = {
+            "temperature",
+            "humidity",
+            "co2",
+            "noise",
+            "light",
+            "occupancy",
+        }
+
+        missing = required_keys - set(raw.keys())
+
+        if missing:
+            raise LLMExtractionError(
+                "AI response is missing fields: "
+                + ", ".join(sorted(missing))
+            )
+
+        try:
+            values = {
+                key: raw[key]
+                for key in required_keys
+            }
+
+            return ClassroomConditions(**values)
+
+        except Exception as exc:
+            logger.exception(
+                "Extracted classroom values failed validation: %s",
+                exc,
+            )
+
+            raise LLMExtractionError(
+                f"Extracted values failed validation: {exc}"
+            ) from exc
+
+    except LLMExtractionError:
+        raise
+
+    except LLMConfigError:
+        raise
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected error during classroom condition extraction: %s",
+            exc,
+        )
+
+        raise LLMExtractionError(
+            f"Unexpected LLM error: {exc}"
+        ) from exc
 
 
 def generate_explanation(
@@ -132,18 +269,34 @@ def generate_explanation(
     category: str,
     fired_rule_descriptions: List[str],
 ) -> ExplanationResult:
-    """LangChain pipeline #2: Fuzzy result -> plain-English explanation.
-
-    Falls back to a simple templated explanation (no LLM call) if the API
-    key is missing or the request fails, so the app never breaks the user's
-    flow just because the explanation step is unavailable.
     """
+    LangChain pipeline #2:
+
+    Fuzzy result
+        -> readings + score + category + fired rules
+        -> ChatPromptTemplate
+        -> ChatOpenAI
+        -> plain-English explanation
+
+    If the LLM is unavailable, the function safely returns a
+    non-LLM fallback explanation.
+    """
+
     try:
         llm = get_llm(temperature=0.4)
+
         chain = EXPLANATION_PROMPT | llm
 
-        readings_str = ", ".join(f"{k}={v}" for k, v in conditions.model_dump().items())
-        rules_str = "; ".join(fired_rule_descriptions) if fired_rule_descriptions else "none strongly activated"
+        readings_str = ", ".join(
+            f"{key}={value}"
+            for key, value in conditions.model_dump().items()
+        )
+
+        rules_str = (
+            "; ".join(fired_rule_descriptions)
+            if fired_rule_descriptions
+            else "none strongly activated"
+        )
 
         response = chain.invoke(
             {
@@ -153,43 +306,139 @@ def generate_explanation(
                 "fired_rules": rules_str,
             }
         )
-        return ExplanationResult(explanation=response.content.strip(), source="llm")
 
-       
+        explanation = getattr(
+            response,
+            "content",
+            "",
+        )
+
+        if not explanation or not explanation.strip():
+            raise ValueError(
+                "The LLM returned an empty explanation."
+            )
+
+        return ExplanationResult(
+            explanation=explanation.strip(),
+            source="llm",
+        )
+
     except Exception as exc:
-        import logging
-        logging.exception("LLM explanation request failed")
+        """
+        IMPORTANT:
+        Do not expose the API key or sensitive configuration.
 
-        return ExplanationResult(explanation=response.content.strip(), source="llm")
+        logging.exception() records the actual error and traceback in
+        Streamlit Cloud logs, making debugging much easier.
+        """
 
-    except Exception as exc:
+        logger.exception(
+            "LLM explanation request failed: %s",
+            exc,
+        )
+
+        return ExplanationResult(
+            explanation=_fallback_explanation(
+                conditions,
+                score,
+                category,
+            ),
+            source="fallback",
+        )
 
 
-def _fallback_explanation(conditions: ClassroomConditions, score: float, category: str) -> str:
-    """A simple, non-LLM explanation used when the API is unavailable, so
-    Manual Assessment mode keeps working even with no internet/API key."""
+def _fallback_explanation(
+    conditions: ClassroomConditions,
+    score: float,
+    category: str,
+) -> str:
+    """
+    Generate a simple explanation without using an LLM.
+
+    This guarantees that Manual Assessment mode continues working
+    even if the API is unavailable.
+    """
+
     c = conditions
+
     notes = []
+
     if c.temperature > 27:
-        notes.append("the temperature is on the warm side")
+        notes.append(
+            "the temperature is on the warm side"
+        )
+
     elif c.temperature < 18:
-        notes.append("the temperature is on the cold side")
+        notes.append(
+            "the temperature is on the cold side"
+        )
+
+    if c.humidity > 70:
+        notes.append(
+            "humidity is relatively high"
+        )
+
+    elif c.humidity < 30:
+        notes.append(
+            "humidity is relatively low"
+        )
+
     if c.co2 > 1200:
-        notes.append("CO2 levels are elevated, suggesting poor ventilation")
+        notes.append(
+            "CO2 levels are elevated, suggesting poor ventilation"
+        )
+
     if c.noise > 65:
-        notes.append("the noise level is high")
+        notes.append(
+            "the noise level is high"
+        )
+
+    if c.light < 300:
+        notes.append(
+            "lighting may be lower than recommended"
+        )
+
     if c.occupancy > 80:
-        notes.append("the room is heavily occupied")
+        notes.append(
+            "the room is heavily occupied"
+        )
+
     if not notes:
-        notes.append("most readings are within comfortable ranges")
+        notes.append(
+            "most readings are within comfortable ranges"
+        )
+
+    reason_text = ", and ".join(notes)
 
     suggestion = ""
+
     if category in ("Poor", "Very Poor"):
-        suggestion = " Improving ventilation and reducing noise would likely help the most."
+        suggestion = (
+            " Improving ventilation and reducing noise "
+            "would likely help the most."
+        )
+
     elif category == "Average":
-        suggestion = " A few small adjustments could push this into the 'Good' range."
+        suggestion = (
+            " A few small adjustments could improve "
+            "the classroom environment."
+        )
+
+    elif category == "Good":
+        suggestion = (
+            " The current conditions are generally comfortable, "
+            "with only minor improvements potentially needed."
+        )
+
+    elif category == "Excellent":
+        suggestion = (
+            " The current readings indicate a generally "
+            "comfortable classroom environment."
+        )
 
     return (
-        f"The classroom environment scored {score}/100 ({category}). "
-        f"This is mainly because {', and '.join(notes)}.{suggestion}"
+        f"The classroom environment scored {score}/100 "
+        f"({category}). "
+        f"This is mainly because {reason_text}."
+        f"{suggestion}"
     )
