@@ -85,12 +85,12 @@ def get_llm(temperature: float = 0.1) -> ChatOpenAI:
     ).strip() or None
 
     return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        timeout=30,
-        max_retries=1,
+    model=model,
+    api_key=api_key,
+    base_url=base_url,
+    temperature=temperature,
+    timeout=30,
+    max_tokens=1000,
     )
 
 
