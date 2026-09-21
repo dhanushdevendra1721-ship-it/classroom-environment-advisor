@@ -155,8 +155,14 @@ def generate_explanation(
         )
         return ExplanationResult(explanation=response.content.strip(), source="llm")
 
-    except Exception:  # noqa: BLE001  — any LLM/config failure: use fallback
-        return ExplanationResult(explanation=_fallback_explanation(conditions, score, category), source="fallback")
+        except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.exception("LLM explanation request failed: %s", exc)
+
+        return ExplanationResult(
+            explanation=_fallback_explanation(conditions, score, category),
+            source="fallback",
+        )
 
 
 def _fallback_explanation(conditions: ClassroomConditions, score: float, category: str) -> str:
