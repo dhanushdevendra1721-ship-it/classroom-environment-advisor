@@ -108,7 +108,7 @@ def extract_conditions_from_text(description: str) -> ClassroomConditions:
             raw_message = raw_chain.invoke({"description": description})
             cleaned = _strip_code_fences(raw_message.content)
             raw = json.loads(cleaned)
-        except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
             raise LLMExtractionError(
                 f"The AI response could not be parsed as valid JSON: {exc}"
             ) from exc
@@ -155,14 +155,14 @@ def generate_explanation(
         )
         return ExplanationResult(explanation=response.content.strip(), source="llm")
 
-            except Exception as exc:
+       
+    except Exception as exc:
         import logging
         logging.exception("LLM explanation request failed")
 
-        return ExplanationResult(
-            explanation=_fallback_explanation(conditions, score, category),
-            source="fallback",
-        )
+        return ExplanationResult(explanation=response.content.strip(), source="llm")
+
+    except Exception as exc:
 
 
 def _fallback_explanation(conditions: ClassroomConditions, score: float, category: str) -> str:
