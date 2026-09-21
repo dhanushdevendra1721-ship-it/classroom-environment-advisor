@@ -1,0 +1,9 @@
+streamlit>=1.36,<2.0
+langchain>=0.2,<0.4
+langchain-openai>=0.1,<0.3
+langchain-core>=0.2,<0.4
+scikit-fuzzy>=0.4.2,<0.5
+numpy>=1.26,<2.0
+plotly>=5.20,<6.0
+pydantic>=2.6,<3.0
+python-dotenv>=1.0,<2.0
