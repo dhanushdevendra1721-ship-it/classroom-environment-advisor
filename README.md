@@ -1,386 +1,301 @@
-# 🏫 AI-Based Classroom Environment Quality Advisor
+# 🏫 Classroom Environment Quality Advisor
 
-**LangChain + Fuzzy Logic mini-project**
+A smart **Classroom Environment Quality Advisor** designed to evaluate classroom environmental conditions and provide useful recommendations for maintaining a comfortable and healthy learning environment.
 
-A Streamlit web app that scores classroom environment quality (0–100) using
-a genuine **Mamdani Fuzzy Inference System**, with a **LangChain**-powered
-natural-language front end that lets a user describe a classroom in plain
-English instead of setting sliders.
+The project uses a **Fuzzy Inference Engine** to analyze environmental parameters and generate an overall classroom environment assessment. It also includes an **LLM service** for providing intelligent recommendations and natural-language based assessment.
+
+## 🚀 Live Deployment
+
+🔗 **Streamlit App:**
+https://classroom-environment-advisor-8wt7gmqzbcj6u3tgzxqcy8.streamlit.app/
 
 ---
 
-## 1. Problem Statement
+## ✨ Main Features
 
-Teachers and students have an intuitive sense of when a classroom "feels
-off" — too hot, too noisy, stuffy air — but no simple tool to quantify it.
-Environmental factors like temperature, humidity, CO2, noise, lighting and
-occupancy interact in ways that are naturally *vague* ("somewhat warm",
-"a bit crowded"), which makes classical if-else scoring awkward and
-brittle. This is a textbook use case for **fuzzy logic**, which is designed
-to reason with degrees of truth rather than sharp thresholds.
+* 🌡️ Classroom environmental condition analysis
+* 🧠 Fuzzy logic-based environmental assessment
+* 📊 Overall classroom environment quality evaluation
+* 💡 Intelligent recommendations for improving classroom conditions
+* 🤖 LLM-based natural language assessment
+* 🔄 LLM error handling and fallback mechanism
+* 🎛️ Manual assessment using environmental parameters
+* 💬 AI Natural Language Assessment
+* 🧪 Unit tests for the fuzzy inference engine
+* 🧪 Unit tests for the LLM service
+* 🌐 Interactive Streamlit web interface
+* ☁️ Online deployment using Streamlit
 
-## 2. Objective
+---
 
-Build a tool that:
-1. Accepts classroom readings either manually (sliders) or as a free-text
-   description.
-2. Uses a **fuzzy inference system** — not if/else rules — to compute a
-   0–100 "Environment Quality" score and category.
-3. Uses **LangChain + an LLM** to (a) turn natural language into numeric
-   readings, and (b) turn the numeric result back into a plain-English
-   explanation.
+## 🛠️ Technologies / Tech Stack
 
-## 3. Features
+* **Python**
+* **Streamlit**
+* **Fuzzy Logic / Fuzzy Inference**
+* **LLM Service**
+* **Python Unit Testing**
+* **Git & GitHub**
+* **Streamlit Cloud**
 
-- 🎛️ **Manual Assessment** — sliders for all 6 environmental factors.
-- 🤖 **AI Natural Language Assessment** — describe the room in your own
-  words; LangChain extracts the numbers.
-- A genuine **Mamdani fuzzy inference engine**: fuzzification → rule
-  evaluation → aggregation → centroid defuzzification.
-- 15-rule fuzzy rule base, fully visible in the UI (not hidden).
-- LangChain-generated plain-English explanation of every result, grounded
-  in the fuzzy engine's actual numbers.
-- Visualizations: quality gauge, input radar chart, membership function
-  plots, and the aggregated-output/defuzzification plot.
-- Works offline in Manual mode even without an API key (fallback
-  explanation), so a missing/expired key never fully breaks the app.
-- No hardcoded API keys — `.env` locally, `st.secrets` on Streamlit Cloud.
+---
 
-## 4. Technologies Used
+## 📁 Project Structure
 
-| Purpose            | Technology                         |
-|---------------------|-------------------------------------|
-| UI                  | Streamlit                           |
-| LLM orchestration   | LangChain (`langchain`, `langchain-openai`, `langchain-core`) |
-| LLM                 | Any OpenAI-compatible model (default `gpt-4o-mini`) |
-| Fuzzy logic         | scikit-fuzzy (`skfuzzy`) + NumPy    |
-| Data validation     | Pydantic v2                         |
-| Charts              | Plotly                              |
-| Secrets             | python-dotenv / `st.secrets`        |
-
-## 5. System Architecture
-
-```
-                    ┌─────────────────────┐
-   Manual sliders → │                     │
-                     │   Streamlit UI      │
- Free-text input →  │      (app.py)       │
-                     └──────────┬──────────┘
-                                │
-                 ┌──────────────┴───────────────┐
-                 │ (AI mode only)                │
-                 ▼                               │
-     ┌───────────────────────┐                   │
-     │   llm_service.py       │                   │
-     │  (LangChain extraction)│                   │
-     └───────────┬───────────┘                   │
-                 │ ClassroomConditions            │
-                 ▼                               ▼
-        ┌───────────────────────────────────────┐
-        │            fuzzy_engine.py              │
-        │  Fuzzification → Rules → Aggregation →  │
-        │            Defuzzification               │
-        └───────────────────┬──────────────────────┘
-                            │ FuzzyResult (score, category)
-                            ▼
-                ┌───────────────────────┐
-                │   llm_service.py       │
-                │ (LangChain explanation)│
-                └───────────┬───────────┘
-                            ▼
-                    Displayed in Streamlit
+```text
+Classroom-Environment-Quality-Advisor/
+│
+├── app.py
+├── fuzzy_engine.py
+├── llm_service.py
+├── models.py
+├── prompts.py
+├── utils.py
+│
+├── test_fuzzy_engine.py
+├── test_llm_service.py
+│
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── README.md
+│
+└── screenshots/
 ```
 
-## 6. LangChain Component
+### Test Files
 
-LangChain is used for **two** real language-understanding tasks (see
-`llm_service.py` and `prompts.py`):
+**`test_fuzzy_engine.py`**
+Contains unit tests for the fuzzy inference engine and environmental quality assessment.
 
-1. **Extraction** (`extract_conditions_from_text`) — a `ChatPromptTemplate`
-   instructs the LLM to read a free-text classroom description and output
-   the six numeric readings as JSON. The response is parsed with
-   `JsonOutputParser` (with a manual fallback if the LLM wraps its answer in
-   markdown) and validated into a `ClassroomConditions` Pydantic model,
-   which clamps any out-of-range values.
-2. **Explanation** (`generate_explanation`) — a second `ChatPromptTemplate`
-   is given the *already-computed* fuzzy score, category, and list of fired
-   rules, and asked to explain the result in plain English. The prompt
-   explicitly forbids the LLM from inventing a different score — it is only
-   allowed to explain the number it's given.
+**`test_llm_service.py`**
+Contains tests for the LLM service, including error handling and fallback functionality.
 
-The LLM **never produces the final score itself** — the score always comes
-from the fuzzy engine. This is what makes the "AI" component and the
-"fuzzy" component two independent, verifiable parts of the pipeline (see
-Section 21 "Final Audit" for why this separation matters academically).
+---
 
-## 7. Fuzzy Logic Component
+## ⚙️ Installation and Setup
 
-Implemented from scratch in `fuzzy_engine.py` using `scikit-fuzzy`'s
-membership-function primitives — **not** wrapped in a black-box
-`ControlSystem`, so every step is inspectable:
-
-1. **Fuzzification** — `fuzzify()` converts a crisp number into a
-   membership degree (0–1) in each linguistic term, via
-   `skfuzzy.interp_membership`.
-2. **Membership Functions** — `build_membership_functions()` defines
-   triangular/trapezoidal curves for every variable.
-3. **Fuzzy Rules** — `RULES`, a list of 15 `Rule` data objects (not
-   if/else code).
-4. **Rule Evaluation** — `evaluate_rules()` computes each rule's firing
-   strength as the **minimum** (fuzzy AND) of its antecedents' membership
-   degrees.
-5. **Aggregation** — `aggregate_output()` clips each output term's curve at
-   its strongest firing rule, then combines all clipped curves with
-   **maximum** (fuzzy OR).
-6. **Defuzzification** — `defuzzify()` computes the **centroid** (center of
-   gravity) of the aggregated curve via `skfuzzy.defuzz(..., 'centroid')`.
-
-## 8. Fuzzy Variables
-
-| Variable    | Range          | Terms                          |
-|-------------|----------------|----------------------------------|
-| Temperature | 10–45 °C       | Cold, Comfortable, Hot          |
-| Humidity    | 0–100 %        | Low, Comfortable, High          |
-| CO2         | 300–3000 ppm   | Low, Moderate, High             |
-| Noise       | 20–100 dB      | Quiet, Moderate, Noisy          |
-| Light       | 0–1000 lux     | Dim, Comfortable, Bright        |
-| Occupancy   | 0–100 %        | Low, Moderate, High             |
-| **Quality (output)** | 0–100 | Very Poor, Poor, Average, Good, Excellent |
-
-## 9. Membership Functions
-
-Open-ended terms (e.g. "Cold", "Hot", "Low", "High") use **trapezoidal**
-functions; middle terms (e.g. "Comfortable", "Moderate") use **triangular**
-functions. Exact breakpoints are in `build_membership_functions()` in
-`fuzzy_engine.py`, and can be visualized live in the app under "How the
-Fuzzy Logic Works" → membership function viewer.
-
-## 10. Sample Fuzzy Rules
-
-```
-R1:  IF temperature is Comfortable AND humidity is Comfortable
-     AND CO2 is Low AND noise is Quiet
-     THEN quality is Excellent
-
-R2:  IF temperature is Hot AND CO2 is High AND noise is Noisy
-     THEN quality is Very Poor
-
-R4:  IF CO2 is High AND occupancy is High
-     THEN quality is Poor
-
-R6:  IF temperature is Cold AND humidity is High
-     THEN quality is Poor
-```
-Full list of 15 rules: see `RULES` in `fuzzy_engine.py`, or the in-app
-"How the Fuzzy Logic Works" expander.
-
-## 11. Application Workflow
-
-**Manual mode:** sliders → `ClassroomConditions` → fuzzy engine → score +
-category → LangChain explanation → results displayed.
-
-**AI mode:** free text → LangChain extraction → `ClassroomConditions` →
-fuzzy engine → score + category → LangChain explanation → results
-displayed (extracted values also shown, for transparency).
-
-## 12. Installation
+### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
-cd classroom-environment-advisor
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+```
+
+### 2. Navigate to the Project Directory
+
+```bash
+cd Classroom-Environment-Quality-Advisor
+```
+
+### 3. Create a Virtual Environment
+
+```bash
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+```
+
+### 4. Activate the Virtual Environment
+
+**Windows:**
+
+```bash
+venv\Scripts\activate
+```
+
+**Linux / macOS:**
+
+```bash
+source venv/bin/activate
+```
+
+### 5. Install Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-## 13. Environment Variables
+---
 
-Copy `.env.example` to `.env` and fill in your key:
+## 🔐 Environment Variables
 
-```bash
-cp .env.example .env
-```
+If the project uses an LLM/API service, configure the required environment variables locally.
+
+Create a `.env` file based on `.env.example`.
+
+Example:
 
 ```env
 LLM_API_KEY=your_api_key_here
-LLM_MODEL=gpt-4o-mini        # optional, this is the default
-LLM_BASE_URL=                # optional, only for non-OpenAI OpenAI-compatible providers
+LLM_MODEL=your_model_name
 ```
 
-`LLM_BASE_URL` lets you point at any OpenAI-compatible endpoint (Groq,
-OpenRouter, Together AI, etc.) if you don't have an OpenAI key — just set
-`LLM_BASE_URL` and use that provider's key/model name.
+> **Important:** Never add actual API keys, passwords, tokens, or other secret values to GitHub.
 
-## 14. Running Locally
+The `.env` file should be included in `.gitignore`.
+
+For Streamlit Cloud deployment, configure the required secrets through the application's **Secrets** settings.
+
+---
+
+## ▶️ How to Run the Project
+
+After completing the installation and environment setup, start the Streamlit application:
 
 ```bash
 streamlit run app.py
 ```
 
-Then open the URL Streamlit prints (usually `http://localhost:8501`).
+The application will normally be available at:
 
-Manual Assessment mode works even without setting up an API key (with a
-templated fallback explanation); AI Natural Language mode requires
-`LLM_API_KEY` to be set.
+```text
+http://localhost:8501
+```
 
-## 15. Streamlit Cloud Deployment
+Open the URL in your web browser to use the application.
 
-1. Push this project to a **public or private GitHub repo** (make sure
-   `.env` is **not** committed — it's already in `.gitignore`).
-2. Go to [share.streamlit.io](https://share.streamlit.io) and click
-   **"New app"**.
-3. Select your repo, branch, and set the main file path to `app.py`.
-4. Under **"Advanced settings" → Secrets**, add:
-   ```toml
-   LLM_API_KEY = "your_api_key_here"
-   LLM_MODEL = "gpt-4o-mini"
-   LLM_BASE_URL = ""
-   ```
-5. Click **Deploy**.
+---
 
-`utils.load_secrets_into_env()` automatically reads `st.secrets` on
-Streamlit Cloud and injects them into `os.environ`, so the rest of the code
-doesn't need to know whether it's running locally or in the cloud.
+## 🧑‍💻 How to Use the Project
 
-## 16. GitHub Setup
+### 🎛️ Manual Assessment
+
+The Manual Assessment mode allows the user to provide classroom environmental parameters manually.
+
+The system processes the entered environmental conditions through the **Fuzzy Inference Engine** and generates an overall classroom environment assessment.
+
+The results can include:
+
+* Environmental quality score
+* Overall assessment
+* Individual parameter evaluation
+* Recommendations for improving classroom conditions
+
+### 🤖 AI Natural Language Assessment
+
+The AI Natural Language Assessment allows the user to describe classroom conditions using natural language.
+
+The **LLM service** processes the description and assists in generating an assessment and recommendations based on the provided information.
+
+The application also includes error handling and fallback functionality when the LLM service is unavailable or encounters an error.
+
+---
+
+## 📸 Screenshots
+
+### 🎛️ Manual Assessment
+
+<p align="center">
+  <img src="screenshots/1.png" width="32%" alt="Manual Assessment 1" />
+  <img src="screenshots/2.png" width="32%" alt="Manual Assessment 2" />
+  <img src="screenshots/3.png" width="32%" alt="Manual Assessment 3" />
+  <img src="screenshots/4.png" width="32%" alt="Manual Assessment 4" />
+  <img src="screenshots/5.png" width="32%" alt="Manual Assessment 5" />
+  <img src="screenshots/6.png" width="32%" alt="Manual Assessment 6" />
+</p>
+
+<br>
+
+### 🤖 AI Natural Language Assessment
+
+<p align="center">
+  <img src="screenshots/7.png" width="32%" alt="AI Natural Language Assessment 1" />
+  <img src="screenshots/8.png" width="32%" alt="AI Natural Language Assessment 2" />
+  <img src="screenshots/9.png" width="32%" alt="AI Natural Language Assessment 3" />
+  <img src="screenshots/10.png" width="32%" alt="AI Natural Language Assessment 4" />
+</p>
+
+---
+
+## 🧠 Fuzzy Inference Engine
+
+The **Fuzzy Inference Engine** evaluates classroom environmental conditions using fuzzy logic.
+
+Instead of relying only on strict numerical thresholds, fuzzy logic allows environmental parameters to be interpreted using linguistic concepts such as different levels of environmental quality.
+
+The fuzzy inference process is used to generate an overall classroom environment assessment from the provided environmental parameters.
+
+---
+
+## 🤖 LLM Service
+
+The project includes an **LLM service** to provide intelligent recommendations and support natural-language based classroom assessment.
+
+The LLM component can process the user's natural-language description and generate useful recommendations based on the identified environmental conditions.
+
+The application also implements **error handling and fallback functionality** to improve reliability when the LLM service is unavailable or an API request fails.
+
+---
+
+## 🧪 Testing
+
+The project includes automated unit tests for important application components.
+
+### Fuzzy Inference Engine Tests
+
+Run:
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit: Classroom Environment Quality Advisor"
-git branch -M main
-git remote add origin <your-repo-url>
-git push -u origin main
+python -m pytest test_fuzzy_engine.py
 ```
 
-Double-check `.env` is **not** in `git status` before your first commit.
+### LLM Service Tests
 
-## 17. Screenshots
-
-*(Add screenshots of the Manual Assessment tab, AI Assessment tab, and the
-gauge/rule-trace expander here after running the app locally.)*
-
-## 18. Future Scope
-
-- Add real-time IoT sensor integration (temperature/CO2/noise sensors) to
-  auto-fill the Manual Assessment sliders.
-- Support multi-classroom comparison dashboards.
-- Add adjustable/user-tunable fuzzy rules and membership functions from the
-  UI (a rule/MF editor) for experimentation.
-- Log historical scores over a school term to spot trends.
-- Support additional languages in the natural-language extraction step.
-
-## 19. Viva Preparation
-
-**Q: What is fuzzification?**
-A: Converting a precise ("crisp") number, like 29°C, into degrees of
-membership in linguistic categories, like 0.3 "Comfortable" and 0.7 "Hot" —
-capturing that a value can partially belong to more than one category.
-
-**Q: What are membership functions?**
-A: Mathematical curves (triangular, trapezoidal, etc.) that define how
-strongly a value belongs to a linguistic term, across the variable's whole
-range.
-
-**Q: What are fuzzy rules?**
-A: IF-THEN statements written in linguistic terms (e.g. "IF temperature is
-Hot AND CO2 is High THEN quality is Very Poor"), evaluated using fuzzy
-logic operators instead of exact comparisons.
-
-**Q: What is defuzzification?**
-A: Converting the aggregated fuzzy output back into one crisp number. This
-project uses the **centroid** method — the "center of gravity" of the
-aggregated output curve.
-
-**Q: Why use fuzzy logic instead of if-else?**
-A: Real-world environmental comfort is inherently gradual, not binary — 24°C
-isn't suddenly "uncomfortable" one degree past a cutoff. Fuzzy logic models
-that gradualness and lets multiple rules contribute proportionally to the
-final score, instead of one rigid threshold overriding everything.
-
-**Q: What does LangChain do here?**
-A: It orchestrates two LLM calls: (1) turning a free-text classroom
-description into structured numeric readings, and (2) turning the fuzzy
-engine's numeric result into a plain-English explanation.
-
-**Q: Why is an LLM needed at all?**
-A: Users naturally describe environments in vague language ("kind of warm",
-"pretty crowded"). An LLM can interpret that language and estimate
-reasonable numeric values, which a rule-based parser could not do reliably
-for open-ended phrasing.
-
-**Q: How does natural language become numerical input?**
-A: The LLM is prompted with the valid range and typical value for each of
-the six variables, and asked to return a JSON object with its best numeric
-estimate for each — which is then validated by a Pydantic model before use.
-
-**Q: Why doesn't the LLM directly decide the final score?**
-A: To keep the score consistent, explainable, and reproducible. A fuzzy
-system based on fixed membership functions and rules will always give the
-same score for the same numeric inputs, while an LLM's output can vary
-between runs. Keeping the LLM out of the scoring itself also makes the
-fuzzy logic verifiable and demonstrable on its own.
-
-**Q: How are the two components connected?**
-A: The LangChain extraction step produces a `ClassroomConditions` object;
-that exact object is passed straight into the fuzzy engine's
-`run_fuzzy_inference()` function. The fuzzy engine's `FuzzyResult` (score +
-category + fired rules) is then passed into the second LangChain step as
-plain data for the explanation prompt.
-
-## 20. Project Structure
-
-```
-classroom-environment-advisor/
-│
-├── app.py                    # Streamlit UI, both modes
-├── fuzzy_engine.py           # Mamdani fuzzy inference system
-├── llm_service.py            # LangChain extraction + explanation
-├── models.py                 # Pydantic models (ClassroomConditions, FuzzyResult)
-├── prompts.py                 # LangChain prompt templates
-├── utils.py                   # Secrets loading + Plotly visualizations
-├── requirements.txt
-├── .env.example
-├── .gitignore
-├── README.md
-├── tests/
-│   ├── test_fuzzy_engine.py  # Fuzzy engine unit tests
-│   └── test_llm_service.py   # LangChain service error-handling tests
-└── assets/                    # (optional diagrams/screenshots)
-```
-
-## 21. Testing
+Run:
 
 ```bash
-pip install pytest
-pytest tests/ -v
+python -m pytest test_llm_service.py
 ```
 
-Or, without pytest installed:
+### Run All Tests
+
 ```bash
-python tests/test_fuzzy_engine.py
+python -m pytest
 ```
 
-Test coverage includes:
-- Comfortable classroom → high score (Test Case 1)
-- Hot + high CO2 + noisy classroom → low score (Test Case 2)
-- Moderate conditions → medium score (Test Case 3)
-- Near-ideal conditions → high score (Test Case 4)
-- Score always stays within [0, 100]
-- Rule strengths are valid membership degrees
-- Out-of-range inputs are clamped, not rejected
-- Missing required fields are rejected by Pydantic
-- Missing API key raises a clear config error
-- Empty/whitespace descriptions are rejected before calling the LLM
-- Explanation generation falls back gracefully with no API key
+### Test Coverage Includes
 
-> **Note on assertions:** tests check score *ranges/behavior* (e.g. "a hot,
-> noisy, crowded room scores low"), not one exact number — since a fuzzy
-> system's precise output depends on membership-function shape and isn't
-> meant to be pinned to a single "magic" value (see project brief §17).
+* Fuzzy inference engine functionality
+* Environmental assessment logic
+* LLM service functionality
+* LLM error handling
+* Fallback behavior
 
-## Final note
+---
 
-**The LLM is used for natural-language understanding and explanation,
-while the final classroom quality score is produced by the fuzzy
-inference system.**
+## ☁️ Deployment
+
+The application is deployed using **Streamlit Cloud**.
+
+### Live Application
+
+**Classroom Environment Quality Advisor**
+
+https://classroom-environment-advisor-8wt7gmqzbcj6u3tgzxqcy8.streamlit.app/
+
+---
+
+## 🎯 Project Objective
+
+The objective of this project is to develop a smart classroom environment assessment system that combines **Fuzzy Logic** and **LLM technology** to evaluate environmental conditions and provide useful recommendations.
+
+The system provides both **manual parameter-based assessment** and **AI-powered natural language assessment** through an interactive Streamlit interface.
+
+---
+
+## 👨‍🎓 Student Details
+
+| Field           | Details          |
+| --------------- | ---------------- |
+| **Name**        | Dhanush Devendra |
+| **Roll Number** | 19009            |
+
+---
+
+## 📄 License
+
+This project is developed for **academic and educational purposes**.
+
+---
+
+## 🙌 Acknowledgement
+
+This project was developed as part of an academic project to explore **Fuzzy Logic, intelligent recommendation systems, LLM integration, automated testing, and Streamlit-based application deployment**.
